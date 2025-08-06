@@ -1,0 +1,8 @@
+services:
+  discord-bot:
+    build: .
+    image: discord-bot
+    env_file:
+      - .env
+    volumes:
+      - ./discord.log:/bot/discord.log
