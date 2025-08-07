@@ -1,9 +1,10 @@
 import random
+import asyncio
+
 
 import aiohttp
 import discord
 from discord.ext import commands
-from discord.ext.commands import Context
 from discord import app_commands
 
 class Choice(discord.ui.View):
@@ -28,20 +29,45 @@ class Choice(discord.ui.View):
 class Fun(commands.Cog, name="fun"):
     def __init__(self, bot) -> None:
         self.bot = bot
+    
+    @app_commands.command(name="spam", description="Spam a message n <= 5 times")
+    async def spam(self, interaction: discord.Interaction, message: str, count: int) -> None:
+        """
+        Sends a message to the channel up to 5 times.
 
-    @commands.hybrid_command(name="hello", description="Hello")
-    @app_commands.guilds(discord.Object(id=244842516631781386))
-    async def hello(self, context: Context) -> None:
+        :param interaction: The application command interaction object.
+        :param message: The message to be spammed.
+        :param count: The number of times to spam the message (maximum 5).
+        """
+
+        # Defer the interaction, letting us send more than one message. Message stays
+        await interaction.response.defer(ephemeral=False)
+
+        if count > 5:
+            count = 5
+
+        for _ in range(count):
+            await interaction.channel.send(message)
+            await asyncio.sleep(0.1)
+
+        await interaction.followup.send(f"✅ Finished spamming '{message}' {count} times.")
+
+    @app_commands.command(name="hello", description="Hello")
+    async def hello(self, interaction: discord.Interaction) -> None:
+        """
+        A slash command that responds with an embed saying "Hello"
+
+        :param interaction: The application command interaction object.
+        """
         embed = discord.Embed(description="Hello", color=0xBEBEFE)
-        await context.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
-    @commands.hybrid_command(name="randomfact", description="Get a random fact.")
-    @app_commands.guilds(discord.Object(id=244842516631781386))
-    async def randomfact(self, context: Context) -> None:
+    @app_commands.command(name="randomfact", description="Get a random fact.")
+    async def randomfact(self, interaction: discord.Interaction) -> None:
         """
         Get a random fact.
 
-        :param context: The hybrid command context.
+        :param interaction: The application command interaction object.
         """
         # This will prevent your bot from stopping everything when doing a web request - see: https://discordpy.readthedocs.io/en/stable/faq.html#how-do-i-make-a-web-request
         async with aiohttp.ClientSession() as session:
@@ -57,21 +83,20 @@ class Fun(commands.Cog, name="fun"):
                         description="There is something wrong with the API, please try again later",
                         color=0xE02B2B,
                     )
-                await context.send(embed=embed)
+                await interaction.response.send_message(embed=embed)
 
-    @commands.hybrid_command(
+    @app_commands.command(
         name="coinflip", description="Make a coin flip, but give your bet before."
     )
-    @app_commands.guilds(discord.Object(id=244842516631781386))
-    async def coinflip(self, context: Context) -> None:
+    async def coinflip(self, interaction: discord.Interaction) -> None:
         """
         Make a coin flip, but give your bet before.
 
-        :param context: The hybrid command context.
+        :param interaction: The application command interaction object.
         """
         buttons = Choice()
         embed = discord.Embed(description="What is your bet?", color=0xBEBEFE)
-        message = await context.send(embed=embed, view=buttons)
+        await interaction.response.send_message(embed=embed, view=buttons)
         await buttons.wait()  # We wait for the user to click a button.
         result = random.choice(["heads", "tails"])
         if buttons.value == result:
@@ -84,7 +109,8 @@ class Fun(commands.Cog, name="fun"):
                 description=f"Woops! You guessed `{buttons.value}` and I flipped the coin to `{result}`, better luck next time!",
                 color=0xE02B2B,
             )
-        await message.edit(embed=embed, view=None, content=None)
+        initial_message = await interaction.original_response()
+        await initial_message.edit(embed=embed, view=None)
 
 async def setup(bot) -> None:
     await bot.add_cog(Fun(bot))

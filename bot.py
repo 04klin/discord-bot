@@ -5,7 +5,7 @@ import random
 
 import discord
 from discord.ext import commands, tasks
-from discord.ext.commands import Context
+from discord import app_commands
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -155,84 +155,106 @@ class DiscordBot(commands.Bot):
             f"Running on: {platform.system()} {platform.release()} ({os.name})"
         )
         self.logger.info("-------------------")
-        await self.load_cogs()
-        await self.tree.sync(guild=discord.Object(id=244842516631781386)) # Load cogs before syncing
-        self.status_task.start()
 
-    async def on_command_completion(self, context: Context) -> None:
+        await self.load_cogs()
+
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+            """
+            The code in this event is executed every time a normal valid command catches an error.
+
+            :param context: The context of the normal command that failed executing.
+            :param error: The error that has been faced.
+            """
+            if isinstance(error, app_commands.CommandOnCooldown):
+                minutes, seconds = divmod(error.retry_after, 60)
+                hours, minutes = divmod(minutes, 60)
+                hours = hours % 24
+                embed = discord.Embed(
+                    description=f"**Please slow down** - You can use this command again in {f'{round(hours)} hours' if round(hours) > 0 else ''} {f'{round(minutes)} minutes' if round(minutes) > 0 else ''} {f'{round(seconds)} seconds' if round(seconds) > 0 else ''}.",
+                    color=0xE02B2B,
+                )
+                await interaction.response.send_message(embed=embed)
+            elif isinstance(error, app_commands.NotOwner):
+                embed = discord.Embed(
+                    description="You are not the owner of the bot!", color=0xE02B2B
+                )
+                await interaction.response.send_message(embed=embed)
+                if interaction.guild:
+                    self.logger.warning(
+                        f"{interaction.user} (ID: {interaction.user.id}) tried to execute an owner only command in the guild {interaction.guild.name} (ID: {interaction.guild.id}), but the user is not an owner of the bot."
+                    )
+                else:
+                    self.logger.warning(
+                        f"{interaction.user} (ID: {interaction.user.id}) tried to execute an owner only command in the bot's DMs, but the user is not an owner of the bot."
+                    )
+            elif isinstance(error, app_commands.MissingPermissions):
+                embed = discord.Embed(
+                    description="You are missing the permission(s) `"
+                    + ", ".join(error.missing_permissions)
+                    + "` to execute this command!",
+                    color=0xE02B2B,
+                )
+                await interaction.response.send_message(embed=embed)
+            elif isinstance(error, app_commands.BotMissingPermissions):
+                embed = discord.Embed(
+                    description="I am missing the permission(s) `"
+                    + ", ".join(error.missing_permissions)
+                    + "` to fully perform this command!",
+                    color=0xE02B2B,
+                )
+                await interaction.response.send_message(embed=embed)
+            else:
+                # Log any other errors
+                self.logger.error(f"Unhandled command error: {error}")
+                # Optionally, send a generic error message to the user
+                embed = discord.Embed(
+                    description="An unexpected error occurred. Please try again later.",
+                    color=0xE02B2B
+                )
+                # Check if we've already responded to the interaction
+                if interaction.response.is_done():
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Load cogs before syncing
+        guild = discord.Object(id=244842516631781386)
+
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild) 
+
+        # await self.tree.sync()
+        self.status_task.start()
+    
+    # Prevents the bot from processing non-slash commands, otherwise, errors appear
+    async def on_message(self, message: discord.Message) -> None:
+        """
+        This prevents the bot from processing commands from regular messages.
+        We are using slash commands only, so we don't want this behavior.
+        """
+        # If the message is from the bot itself, ignore it.
+        if message.author.bot:
+            return
+
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
         """
         The code in this event is executed every time a normal command has been *successfully* executed.
 
-        :param context: The context of the command that has been executed.
+        :param interaction: The interaction that has been executed.
         """
-        full_command_name = context.command.qualified_name
-        split = full_command_name.split(" ")
-        executed_command = str(split[0])
-        if context.guild is not None:
-            self.logger.info(
-                f"Executed {executed_command} command in {context.guild.name} (ID: {context.guild.id}) by {context.author} (ID: {context.author.id})"
-            )
-        else:
-            self.logger.info(
-                f"Executed {executed_command} command by {context.author} (ID: {context.author.id}) in DMs"
-            )
-
-    async def on_command_error(self, context: Context, error) -> None:
-        """
-        The code in this event is executed every time a normal valid command catches an error.
-
-        :param context: The context of the normal command that failed executing.
-        :param error: The error that has been faced.
-        """
-        if isinstance(error, commands.CommandOnCooldown):
-            minutes, seconds = divmod(error.retry_after, 60)
-            hours, minutes = divmod(minutes, 60)
-            hours = hours % 24
-            embed = discord.Embed(
-                description=f"**Please slow down** - You can use this command again in {f'{round(hours)} hours' if round(hours) > 0 else ''} {f'{round(minutes)} minutes' if round(minutes) > 0 else ''} {f'{round(seconds)} seconds' if round(seconds) > 0 else ''}.",
-                color=0xE02B2B,
-            )
-            await context.send(embed=embed)
-        elif isinstance(error, commands.NotOwner):
-            embed = discord.Embed(
-                description="You are not the owner of the bot!", color=0xE02B2B
-            )
-            await context.send(embed=embed)
-            if context.guild:
-                self.logger.warning(
-                    f"{context.author} (ID: {context.author.id}) tried to execute an owner only command in the guild {context.guild.name} (ID: {context.guild.id}), but the user is not an owner of the bot."
+        if hasattr(interaction, "command") and interaction.command is not None:
+            full_command_name = interaction.command.qualified_name
+            split = full_command_name.split(" ")
+            executed_command = str(split[0])
+            if interaction.guild is not None:
+                self.logger.info(
+                    f"Executed {executed_command} command in {interaction.guild.name} (ID: {interaction.guild.id}) by {interaction.user} (ID: {interaction.user.id})"
                 )
             else:
-                self.logger.warning(
-                    f"{context.author} (ID: {context.author.id}) tried to execute an owner only command in the bot's DMs, but the user is not an owner of the bot."
+                self.logger.info(
+                    f"Executed {executed_command} command by {interaction.user} (ID: {interaction.user.id}) in DMs"
                 )
-        elif isinstance(error, commands.MissingPermissions):
-            embed = discord.Embed(
-                description="You are missing the permission(s) `"
-                + ", ".join(error.missing_permissions)
-                + "` to execute this command!",
-                color=0xE02B2B,
-            )
-            await context.send(embed=embed)
-        elif isinstance(error, commands.BotMissingPermissions):
-            embed = discord.Embed(
-                description="I am missing the permission(s) `"
-                + ", ".join(error.missing_permissions)
-                + "` to fully perform this command!",
-                color=0xE02B2B,
-            )
-            await context.send(embed=embed)
-        elif isinstance(error, commands.MissingRequiredArgument):
-            embed = discord.Embed(
-                title="Error!",
-                # We need to capitalize because the command arguments have no capital letter in the code and they are the first word in the error message.
-                description=str(error).capitalize(),
-                color=0xE02B2B,
-            )
-            await context.send(embed=embed)
-        else:
-            raise error
-
 
 bot = DiscordBot()
 bot.run(os.getenv("TOKEN"))
