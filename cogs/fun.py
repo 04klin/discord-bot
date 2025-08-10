@@ -29,7 +29,46 @@ class Choice(discord.ui.View):
 class Fun(commands.Cog, name="fun"):
   def __init__(self, bot) -> None:
     self.bot = bot
+
+  # TODO: MAYBE PERSISTANT STORAGE TO HANDLE LONGER REMINDERS
+  @app_commands.command(name="remind", description="Reminds the user with a custom message after a set time")
+  async def remind(self, interaction: discord.Interaction, message: str, hours: int, minutes: int, seconds: int) -> None:
+    """
+    Reminds the user with a custom message after a set time
+
+    :param interaction: The application command interaction object.
+    :param message: The reminder message
+    :param hours: The number of hours to wait
+    :param minutes: The number of minutes to wait 
+    """
+
+    if hours < 0 or minutes < 0 or seconds < 0:
+      await interaction.response.send_message("No negative numbers", ephemeral=True)
+      return
+    
+    total_seconds = hours * 3600 + minutes * 60 + seconds
+
+    if total_seconds <= 0:
+      await interaction.response.send_message("Please provide a time greater than zero!", ephemeral=True)
+      return
+
+    # First respond to discord, then run remind_helper
+    member = interaction.user
+    await interaction.response.send_message(f"Reminder set for {member.mention}")
+    self.bot.loop.create_task(self.remind_helper(interaction, message, total_seconds))
   
+  async def remind_helper(self, interaction: discord.Interaction, message: str, total_seconds: int):
+    """
+    Helper function for remind
+
+    :param interaction: The application command interaction object.
+    :param message: The reminder message
+    :param total_seconds: Total amount of seconds to wait
+    """
+    member = interaction.user
+    await asyncio.sleep(total_seconds)
+    await interaction.followup.send(f"{member.mention}, here's your reminder: **{message}**")
+
   @app_commands.command(name="spam", description="Spam a message n <= 5 times")
   async def spam(self, interaction: discord.Interaction, message: str, count: int) -> None:
     """
@@ -41,7 +80,7 @@ class Fun(commands.Cog, name="fun"):
     """
 
     # Defer the interaction, letting us send more than one message. Message stays
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer()
 
     if count > 5:
       count = 5
