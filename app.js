@@ -7,8 +7,9 @@ import {
   MessageComponentTypes,
   verifyKeyMiddleware,
 } from "discord-interactions";
-import { getRandomEmoji, DiscordRequest, getRandom2To8 } from "./utils.js";
+import { getRandomEmoji, DiscordRequest } from "./utils.js";
 import { applyBulgeWarp } from "./image-transformation/bulge.js";
+import { handleGambleStopInteraction } from "./gamble-stop/gamble-stop-logic.js";
 
 // Create an express app
 const app = express();
@@ -60,19 +61,8 @@ Playing League all day until the sun comes up ${getRandomEmoji()}`,
       }
 
       if (name === "gamble-stop") {
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-            components: [
-              {
-                type: MessageComponentTypes.TEXT_DISPLAY,
-                // Fetches a random emoji to send from a helper function
-                content: getRandom2To8() ? "No more 😭" : "One more!!",
-              },
-            ],
-          },
-        });
+        handleGambleStopInteraction(req, res);
+        return;
       }
 
       if (name === "bulge") {
@@ -128,7 +118,7 @@ Playing League all day until the sun comes up ${getRandomEmoji()}`,
             formData.append(
               "payload_json",
               JSON.stringify({
-                content: `Here is your warped image (strength: ${strength})!`,
+                content: `Here's your image at ${strength}) strength`,
               }),
             );
             formData.append(
@@ -176,6 +166,18 @@ Playing League all day until the sun comes up ${getRandomEmoji()}`,
 
       console.error(`unknown command: ${name}`);
       return res.status(400).json({ error: "unknown command" });
+    }
+
+    /**
+     * Handle message component (button, select menu) requests
+     */
+    if (type === InteractionType.MESSAGE_COMPONENT) {
+      const { custom_id } = data;
+
+      if (custom_id && custom_id.startsWith("gamble_flip_again")) {
+        handleGambleStopInteraction(req, res);
+        return;
+      }
     }
 
     console.error("unknown interaction type", type);

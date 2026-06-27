@@ -61,7 +61,3 @@ export function getRandomEmoji() {
 export function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
-
-export function getRandom2To8() {
-  return Math.random() < 0.2;
-}
