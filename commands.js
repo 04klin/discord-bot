@@ -1,49 +1,48 @@
-import 'dotenv/config';
-import { getRPSChoices } from './game.js';
-import { capitalize, InstallGlobalCommands } from './utils.js';
-
-// Get the game choices from game.js
-function createCommandChoices() {
-  const choices = getRPSChoices();
-  const commandChoices = [];
-
-  for (let choice of choices) {
-    commandChoices.push({
-      name: capitalize(choice),
-      value: choice.toLowerCase(),
-    });
-  }
-
-  return commandChoices;
-}
+import "dotenv/config";
+import { capitalize, InstallGlobalCommands } from "./utils.js";
 
 // Simple test command
 const TEST_COMMAND = {
-  name: 'test',
-  description: 'Basic command',
+  name: "test",
+  description: "Basic command",
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
 };
 
-// Command containing options
-const CHALLENGE_COMMAND = {
-  name: 'challenge',
-  description: 'Challenge to a match of rock paper scissors',
+const BULGE_COMMAND = {
+  name: "bulge",
+  description: "Apply a bulge warp to an image",
+  type: 1,
   options: [
     {
-      type: 3,
-      name: 'object',
-      description: 'Pick your object',
+      type: 11, // ATTACHMENT
+      name: "image",
+      description: "The image to warp",
       required: true,
-      choices: createCommandChoices(),
+    },
+    {
+      type: 10, // NUMBER
+      name: "strength",
+      description:
+        "Distortion strength (positive for bulge, negative for pinch)",
+      required: false,
+      min_value: -1.0,
+      max_value: 1.0,
     },
   ],
-  type: 1,
   integration_types: [0, 1],
-  contexts: [0, 2],
+  contexts: [0, 1, 2],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND];
+const GAMBLE_STOP = {
+  name: "gamble-stop",
+  description: "Should I stop now or play one more?",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, BULGE_COMMAND, GAMBLE_STOP];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
