@@ -1,4 +1,5 @@
 import { Jimp } from "jimp";
+import { InteractionResponseType } from "discord-interactions";
 
 /**
  * Apply a bulge/pinch warp to an image buffer.
@@ -112,3 +113,105 @@ function intToRgba(val) {
 function rgbaToInt(r, g, b, a) {
   return ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
 }
+
+/**
+ * Handle the bulge interaction request.
+ */
+export async function handleBulgeInteraction(req, res) {
+  const { data } = req.body;
+  const imageOption = data.options?.find((opt) => opt.name === "image");
+  const strengthOption = data.options?.find(
+    (opt) => opt.name === "strength",
+  );
+
+  if (!imageOption) {
+    return res
+      .status(400)
+      .json({ error: "Missing required image parameter" });
+  }
+
+  const attachmentId = imageOption.value;
+  const attachment = data.resolved?.attachments?.[attachmentId];
+
+  if (!attachment) {
+    return res
+      .status(400)
+      .json({ error: "Could not resolve image attachment" });
+  }
+
+  const imageUrl = attachment.url;
+  const strength = strengthOption ? strengthOption.value : 0.5;
+
+  // Respond with deferred channel message with source (type 5)
+  res.send({
+    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+  });
+
+  // Run the image download and processing in the background asynchronously
+  (async () => {
+    try {
+      // 1. Fetch image
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(
+          `Failed to download image from Discord: ${response.statusText}`,
+        );
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // 2. Warp image
+      const warpedBuffer = await applyBulgeWarp(buffer, strength);
+
+      // 3. Send follow-up message
+      const token = req.body.token;
+      const applicationId = req.body.application_id || process.env.APP_ID;
+
+      const formData = new FormData();
+      formData.append(
+        "payload_json",
+        JSON.stringify({
+          content: `Here's your image at ${strength}) strength`,
+        }),
+      );
+      formData.append(
+        "files[0]",
+        new Blob([warpedBuffer], { type: "image/png" }),
+        "warped.png",
+      );
+
+      const followUpUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
+      const followUpResponse = await fetch(followUpUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!followUpResponse.ok) {
+        const errorText = await followUpResponse.text();
+        console.error("Failed to send follow-up message:", errorText);
+      }
+    } catch (err) {
+      console.error("Error processing bulge warp:", err);
+      try {
+        const token = req.body.token;
+        const applicationId =
+          req.body.application_id || process.env.APP_ID;
+        await fetch(
+          `https://discord.com/api/v10/webhooks/${applicationId}/${token}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              content: `Failed to warp image: ${err.message}`,
+            }),
+          },
+        );
+      } catch (innerErr) {
+        console.error("Failed to send error notification:", innerErr);
+      }
+    }
+  })();
+}
+
