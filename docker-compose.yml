@@ -1,0 +1,16 @@
+services:
+  discord-bot:
+    build:
+      context: .
+    secrets:
+      - discordbot-env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3005:3000"
+    restart: unless-stopped
+
+secrets:
+  discordbot-env:
+    file: /home/lobster/.secrets/.discordbot-env

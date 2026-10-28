@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import {
   InteractionResponseFlags,
@@ -10,6 +10,9 @@ import {
 import { getRandomEmoji, DiscordRequest } from "./utils.js";
 import { handleBulgeInteraction } from "./image-transformation/bulge.js";
 import { handleGambleStopInteraction } from "./gamble-stop/gamble-stop-logic.js";
+
+dotenv.config({ path: "/run/secrets/discordbot-env" });
+dotenv.config();
 
 // Create an express app
 const app = express();
@@ -80,7 +83,7 @@ Playing League all day until the sun comes up ${getRandomEmoji()}`,
     if (type === InteractionType.MESSAGE_COMPONENT) {
       const { custom_id } = data;
 
-      if (custom_id && custom_id.startsWith("gamble_flip_again")) {
+      if (custom_id && custom_id.startsWith("gamble_")) {
         handleGambleStopInteraction(req, res);
         return;
       }
