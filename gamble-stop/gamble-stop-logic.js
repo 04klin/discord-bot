@@ -6,8 +6,36 @@ import { DiscordRequest } from "../utils.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const DEFAULT_HEADS_PERCENT = 85;
-const ODDS_STEP = 5;
+const COINS = [
+  {
+    id: "standard",
+    label: "Standard",
+    emoji: "🪙",
+    description: "An even chance to play one more game or stop.",
+    // The first flip is guaranteed Heads; replays are genuinely 50/50.
+    getHeadsPercent: (flipNumber) => (flipNumber === 0 ? 100 : 50),
+    allowsReplay: true,
+  },
+  {
+    id: "lucky",
+    label: "Lucky",
+    emoji: "🍀",
+    description: "A lucky chance to play one more game.",
+    // The first flip is guaranteed Heads; replays randomly choose between 60% and 95% Heads.
+    getHeadsPercent: (flipNumber) =>
+      flipNumber === 0 ? 100 : Math.floor(Math.random() * 36) + 60,
+    allowsReplay: true,
+  },
+  {
+    id: "random",
+    label: "Random",
+    emoji: "🎲",
+    description: "The coin chooses its own odds.",
+    // Randomly chooses from 0% to 100% Heads.
+    getHeadsPercent: () => Math.floor(Math.random() * 101),
+    allowsReplay: true,
+  },
+];
 
 function getUser(req) {
   return req.body.member?.user || req.body.user;
@@ -17,36 +45,24 @@ function getUsername(req) {
   return getUser(req)?.username || "Gamer";
 }
 
-function getOddsOptions(selectedHeadsPercent) {
-  return Array.from({ length: 21 }, (_, index) => {
-    const headsPercent = index * ODDS_STEP;
-    return {
-      label: `Heads ${headsPercent}% / Tails ${100 - headsPercent}%`,
-      value: String(headsPercent),
-      description:
-        headsPercent >= 50
-          ? "More likely to play one more"
-          : "More likely to stop",
-      default: headsPercent === selectedHeadsPercent,
-    };
-  });
+function getCoinButtonId(coin, flipNumber = 0) {
+  return `gamble_coin_${coin.id}${coin.allowsReplay ? `_${flipNumber}` : ""}`;
 }
 
-function getSetupMessage(headsPercent = DEFAULT_HEADS_PERCENT, hasSelectedOdds = false) {
-  const tailsPercent = 100 - headsPercent;
-
+function getSetupMessage() {
   return {
     embeds: [
       {
         title: "🪙 Gamble Stop",
         description: [
-          "Set the coin odds, then flip it.",
-          `**Heads: ${headsPercent}%** (play one more)`,
-          `**Tails: ${tailsPercent}%** (stop)`,
+          "Choose a coin to flip.",
           "",
-          hasSelectedOdds
-            ? "Your odds are set. Flip when you are ready!"
-            : "Use the odds slider before your first flip.",
+          ...COINS.map(
+            (coin) =>
+              `${coin.emoji} **${coin.label}** — ${coin.description}`,
+          ),
+          "",
+          "Keep your streak going by replaying after Heads.",
         ].join("\n"),
         color: 0x3498db,
         thumbnail: {
@@ -57,41 +73,24 @@ function getSetupMessage(headsPercent = DEFAULT_HEADS_PERCENT, hasSelectedOdds =
     components: [
       {
         type: MessageComponentTypes.ACTION_ROW,
-        components: [
-          {
-            type: MessageComponentTypes.STRING_SELECT,
-            custom_id: "gamble_odds",
-            placeholder: "Set heads / tails odds",
-            min_values: 1,
-            max_values: 1,
-            options: getOddsOptions(headsPercent),
-          },
-        ],
-      },
-      {
-        type: MessageComponentTypes.ACTION_ROW,
-        components: [
-          {
-            type: MessageComponentTypes.BUTTON,
-            custom_id: `gamble_flip_${headsPercent}_0`,
-            label: "Flip Coin",
-            style: 1,
-            disabled: !hasSelectedOdds,
-          },
-        ],
+        components: COINS.map((coin) => ({
+          type: MessageComponentTypes.BUTTON,
+          custom_id: getCoinButtonId(coin),
+          label: coin.label,
+          style: 1,
+          emoji: { name: coin.emoji },
+        })),
       },
     ],
   };
 }
 
-function getFlipStartedMessage(streak) {
+function getFlipStartedMessage(coin, flipNumber) {
   return {
     embeds: [
       {
         title: "🪙 Coin Flip",
-        description: `Flipping the coin... Let's see what the fates decide!${
-          streak > 0 ? `\n\n🔥 Play Again Streak: **${streak}**` : ""
-        }`,
+        description: `${coin.emoji} Flipping the **${coin.label}** coin... Let's see what the fates decide!\n\n🔥 Current Streak: **${flipNumber}**`,
         color: 0x3498db,
         thumbnail: {
           url: "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1fa99.png",
@@ -104,7 +103,7 @@ function getFlipStartedMessage(streak) {
         components: [
           {
             type: MessageComponentTypes.BUTTON,
-            custom_id: "gamble_flip_again_spinning",
+            custom_id: "gamble_flip_spinning",
             label: "Flipping...",
             style: 2,
             disabled: true,
@@ -115,7 +114,7 @@ function getFlipStartedMessage(streak) {
   };
 }
 
-async function runCoinFlip(req, streak = 0, headsPercent = DEFAULT_HEADS_PERCENT) {
+async function runCoinFlip(req, coin, headsPercent, flipNumber) {
   try {
     const { token } = req.body;
     const applicationId = req.body.application_id || process.env.APP_ID;
@@ -137,9 +136,7 @@ async function runCoinFlip(req, streak = 0, headsPercent = DEFAULT_HEADS_PERCENT
             embeds: [
               {
                 title: "🪙 Coin Flip",
-                description: `${frame.text}\nLet's see what the fates decide!${
-                  streak > 0 ? `\n\n🔥 Play Again Streak: **${streak}**` : ""
-                }`,
+                description: `${coin.emoji} ${frame.text}\nLet's see what the fates decide!\n\n🔥 Current Streak: **${flipNumber}**`,
                 color: 0x3498db, // blue
                 thumbnail: {
                   url: "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1fa99.png",
@@ -152,7 +149,7 @@ async function runCoinFlip(req, streak = 0, headsPercent = DEFAULT_HEADS_PERCENT
                 components: [
                   {
                     type: MessageComponentTypes.BUTTON,
-                    custom_id: "gamble_flip_again_spinning",
+                    custom_id: "gamble_flip_spinning",
                     label: "Flipping...",
                     style: 2, // SECONDARY
                     disabled: true,
@@ -168,34 +165,50 @@ async function runCoinFlip(req, streak = 0, headsPercent = DEFAULT_HEADS_PERCENT
     await sleep(400);
     const isWin = Math.random() < headsPercent / 100;
 
-    let finalTitle,
-      finalDesc,
-      finalColor,
-      finalThumbnail,
-      buttonLabel,
-      buttonStyle,
-      customId;
+    let finalTitle, finalDesc, finalColor, finalThumbnail;
+    const streak = flipNumber + 1;
 
     if (isWin) {
-      const newStreak = streak + 1;
-      finalTitle = `👑 Play One More! (Streak: ${newStreak})`;
-      finalDesc = `### The coin landed on Heads!\n\n**Keep Playing! 🎰**\n\n🔥 Current Streak: **${newStreak}**`;
+      finalTitle = `👑 Play One More Game! (Streak: ${streak})`;
+      finalDesc = `### The ${coin.label} coin landed on Heads!\n\n**Keep Playing! 🎰**\n\n🔥 Current Streak: **${streak}**`;
       finalColor = 0x2ecc71; // green
       finalThumbnail =
         "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f451.png"; // crown
-      buttonLabel = "Flip Again?";
-      buttonStyle = 3; // SUCCESS
-      customId = `gamble_flip_again_${headsPercent}_${newStreak}`;
     } else {
       finalTitle = "🦅 Stop! No More!";
-      finalDesc = `### The coin landed on Tails!\n\n**Close the game! 😭**\n\n💀 Streak ended at: **${streak}**`;
+      finalDesc = `### The ${coin.label} coin landed on Tails!\n\n**Close the game! 😭**\n\n💀 Streak ended at: **${flipNumber}**`;
       finalColor = 0xe74c3c; // red
       finalThumbnail =
         "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f985.png"; // eagle
-      buttonLabel = "Flipped Stop (Stopped)";
-      buttonStyle = 4; // DANGER
-      customId = "gamble_flip_again_ended";
     }
+
+    const buttons = [];
+    if (isWin && coin.allowsReplay) {
+      buttons.push({
+        custom_id: getCoinButtonId(coin, flipNumber + 1),
+        label: `Flip Again (${streak})`,
+        style: 3,
+        emoji: { name: coin.emoji },
+      });
+    }
+    if (coin.id === "random") {
+      buttons.push({
+        custom_id: `gamble_reveal_odds_random_${headsPercent}`,
+        label: "Reveal odds",
+        style: 2,
+      });
+    }
+    const components = buttons.length
+      ? [
+          {
+            type: MessageComponentTypes.ACTION_ROW,
+            components: buttons.map((button) => ({
+              type: MessageComponentTypes.BUTTON,
+              ...button,
+            })),
+          },
+        ]
+      : [];
 
     await DiscordRequest(
       `webhooks/${applicationId}/${token}/messages/@original`,
@@ -215,20 +228,7 @@ async function runCoinFlip(req, streak = 0, headsPercent = DEFAULT_HEADS_PERCENT
               },
             },
           ],
-          components: [
-            {
-              type: MessageComponentTypes.ACTION_ROW,
-              components: [
-                {
-                  type: MessageComponentTypes.BUTTON,
-                  custom_id: customId,
-                  label: buttonLabel,
-                  style: buttonStyle,
-                  disabled: !isWin,
-                },
-              ],
-            },
-          ],
+          components,
         },
       },
     );
@@ -248,39 +248,60 @@ export function handleGambleStopInteraction(req, res) {
 
   const customId = data.custom_id;
 
-  if (customId === "gamble_odds") {
-    const headsPercent = Number(data.values?.[0]);
-    if (!Number.isInteger(headsPercent) || headsPercent < 0 || headsPercent > 100) {
-      return res.status(400).json({ error: "invalid odds selection" });
+  const revealMatch = customId.match(/^gamble_reveal_odds_random_(\d+)$/);
+  if (revealMatch) {
+    const headsPercent = Number(revealMatch[1]);
+    if (headsPercent < 0 || headsPercent > 100) {
+      return res.status(400).json({ error: "invalid revealed odds" });
     }
 
     return res.send({
       type: InteractionResponseType.UPDATE_MESSAGE,
-      data: getSetupMessage(headsPercent, true),
+      data: {
+        components: [
+          {
+            type: MessageComponentTypes.ACTION_ROW,
+            components: [
+              {
+                type: MessageComponentTypes.BUTTON,
+                custom_id: "gamble_reveal_odds_random_revealed",
+                label: `Odds: ${headsPercent}% Heads / ${100 - headsPercent}% Tails`,
+                style: 2,
+                disabled: true,
+              },
+            ],
+          },
+        ],
+      },
     });
   }
 
-  const flipMatch = customId.match(/^gamble_(?:flip|flip_again)_(\d+)_(\d+)$/);
-  if (!flipMatch) {
+  const coin = COINS.find(
+    (candidate) =>
+      customId === getCoinButtonId(candidate) ||
+      (candidate.allowsReplay &&
+        customId.startsWith(`gamble_coin_${candidate.id}_`)),
+  );
+  if (!coin) {
     return res.status(400).json({ error: "unknown gamble interaction" });
   }
 
-  const headsPercent = Number(flipMatch[1]);
-  const streak = Number(flipMatch[2]);
-  if (
-    !Number.isInteger(headsPercent) ||
-    headsPercent < 0 ||
-    headsPercent > 100 ||
-    !Number.isInteger(streak) ||
-    streak < 0
-  ) {
+  const flipNumber = coin.allowsReplay
+    ? Number(customId.match(/_(\d+)$/)?.[1])
+    : 0;
+  if (!Number.isInteger(flipNumber) || flipNumber < 0) {
+    return res.status(400).json({ error: "invalid gamble state" });
+  }
+
+  const headsPercent = coin.getHeadsPercent(flipNumber);
+  if (!Number.isInteger(headsPercent) || headsPercent < 0 || headsPercent > 100) {
     return res.status(400).json({ error: "invalid gamble state" });
   }
 
   res.send({
     type: InteractionResponseType.UPDATE_MESSAGE,
-    data: getFlipStartedMessage(streak),
+    data: getFlipStartedMessage(coin, flipNumber),
   });
 
-  runCoinFlip(req, streak, headsPercent);
+  runCoinFlip(req, coin, headsPercent, flipNumber);
 }
